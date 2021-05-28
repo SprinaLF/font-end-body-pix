@@ -1,5 +1,4 @@
 # person-segmentation
-11
 
 ## Project setup
 ```
