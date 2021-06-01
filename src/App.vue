@@ -1,30 +1,30 @@
 <template>
   <div id="app" class="root">
-    <h2>人像分割demo</h2>
-    <!--图片展示-->
     <div class="content">
+      <h2>人像分割demo</h2>
+      <!--图片展示-->
       <img id='image' width="200" src='./images/single.jpeg' crossorigin="anonymous"/>
-      <!-- <img id='image' width="200" src='./images/double.jpeg' crossorigin="anonymous"/> -->
-      <canvas id="canvas" width="500" height="500"></canvas>
+      <canvas id="picCanvas" width="500" height="500"></canvas>
       <!-- 拍照 -->
       <canvas ref="photoCanvas" width="320" height="240" style="margin-left: 20px"></canvas>
       <!--操作-->
       <div class="operation">
         <el-button type="primary" round @click="callCamera">开启摄像头</el-button>
-        <el-button type="primary" round @click="photograph">拍照</el-button>
         <el-button round @click="closeCamera">关闭摄像头</el-button>
-        <el-radio-group v-model="radio" style="margin-left: 40px;" @change="switchVideoMode">
+        <el-radio-group v-model="radio" style="margin: 0px 40px;" @change="switchVideoMode">
           <el-radio :label="1">默认</el-radio>
           <el-radio :label="2">背景虚化</el-radio>
-          <el-radio :label="3">替换背景</el-radio>
+          <el-radio :label="3">背景替换</el-radio>
         </el-radio-group>
+         <el-button type="primary" round @click="photograph">拍照</el-button>
+        <el-button round @click="()=>clearCanvas(this.$refs['photoCanvas'])">删除照片</el-button>
       </div>
 
       <!-- 视频区 -->
       <div class="container">
         <div class="item">
           <div class="title">
-            原始视频
+            原视频
           </div>
           <div class="video">
             <video ref="video" width="640" height="480" autoplay></video>
@@ -39,7 +39,7 @@
           </div>
         </div>
       </div>
-      <img id="maskImg" src="./images/bc.png" width="640" height="360" style="display: none;" />
+      <img id="maskImg" ref="maskBc" src="./images/bc.png" width="640" height="360" style="display: none;" />
     </div>
   </div>
 </template>
@@ -51,14 +51,19 @@ export default {
   name: 'App',
   data() {
     return {
+      isOpen: false,    // 是否开启摄像头
       radio: 1,
       timer: null,   // 定时器
       videoCanvas: null,     // 处理后的视频帧的绘制区域
+      net: null,
 
-      segmentation: null,     // 分割类型
+      opacity: 0.3,
+      segmentation: null,     // 计算出d
       flipHorizontal: false,    // 是否水平翻转
       backgroundBlurAmount: 3,  // 背景虚化程度 0~20
-      edgeBlurAmount: 3    // 边缘模糊
+      edgeBlurAmount: 3,    // 边缘模糊
+
+      maskBlurAmount: 3    // this will darken the background and blur the darkened background's edge.
     }
   },
   mounted() {
@@ -76,8 +81,11 @@ export default {
       }).then(success => {
         // 摄像头开启成功
         this.$refs['video'].srcObject = success
+        isOpen = true,
         // 实时拍照效果
         this.$refs['video'].play()
+        // 判断处于哪种模式
+        switchVideoMode()
       }).catch(error => {
         console.error('摄像头开启失败，请检查摄像头是否可用！')
       })
@@ -96,8 +104,6 @@ export default {
 　　　 // 图片尺寸  用于判断
       let size = (fileLength / 1024).toFixed(2)
       console.log(size)
-
- 　　  // 上传拍照信息  调用接口上传图片 .........
 
       // 保存到本地
       this.dialogCamera = false
@@ -129,57 +135,90 @@ export default {
 
     // 切换模式
     switchVideoMode () {
-      if(this.radio===1) {
-        clearInterval(this.timer)
-        this.clearCanvas(this.videoCanvas)
-        return
+      switch(this.radio) {
+        case 1: 
+          clearInterval(this.timer)
+          this.clearCanvas(this.videoCanvas)
+          break
+        case 2: 
+          this.blurBackground()  // 虚化背景
+          break
+        case 3:
+          this.replaceBackground()    // 背景替换
       }
-      if(this.radio===2) {
-        // 虚化背景
-        this.blurBackground()
-      }
-      // 替换背景
-
     },
 
-    // 虚化背景
-    blurBackground () {
-      this.timer = setInterval(() => {
-        // 把当前视频帧内容渲染到canvas上
-        // let ctx = document.getElementById('newVideo');
-        let ctx = this.$refs['newVideo'].getContext('2d')
-        // ctx.drawImage(this.$refs['video'], 0, 0, 640, 480)
-
-        const img = this.$refs['video']
-        // const img = document.getElementById('image');
-
-        bodyPix.drawBokehEffect(
-        this.videoCanvas, img, this.segmentation, this.backgroundBlurAmount,
+    // 2虚化背景
+    async blurBackground () {
+      const img = this.$refs['video']
+      this.segmentation = await this.net.segmentPerson(img);
+      bodyPix.drawBokehEffect(
+        this.videoCanvas, img, this.segmentation, 3,
         this.edgeBlurAmount, this.flipHorizontal);
-      }, 60)
+      if(this.radio===2) {
+        requestAnimationFrame(
+          this.blurBackground
+        )
+      } else {
+          this.clearCanvas(this.videoCanvas)
+      }
+      
+      // this.timer = setInterval(async() => {
+      //   this.segmentation = await this.net.segmentPerson(img);
+      //   bodyPix.drawBokehEffect(
+      //     this.videoCanvas, img, this.segmentation, 3,
+      //     this.edgeBlurAmount, this.flipHorizontal);
+      // }, 60)
+    },
+
+    // 3背景替换
+    async replaceBackground() {
+      const img = this.$refs['video']
+      const segmentation = await this.net.segmentPerson(img);
+
+      const foregroundColor = { r: 0, g: 0, b: 0, a: 0 }
+      const backgroundColor = { r: 0, g: 0, b: 0, a: 255 }
+      let backgroundDarkeningMask = bodyPix.toMask(
+        segmentation,
+        foregroundColor,
+        backgroundColor
+      )
+      if (backgroundDarkeningMask) {
+        let context = this.videoCanvas.getContext('2d')
+        // 合成
+        context.putImageData(backgroundDarkeningMask, 0, 0)
+        context.globalCompositeOperation = 'source-in' // 新图形只在重合区域绘制
+        context.drawImage(this.$refs['maskBc'], 0, 0, 640, 480)
+        context.globalCompositeOperation = 'destination-over' // 新图形只在不重合的区域绘制
+        context.drawImage(img, 0, 0)
+        context.globalCompositeOperation = 'source-over' // 恢复
+      }
+      if(this.radio===3) {
+        requestAnimationFrame(
+          this.replaceBackground
+        )
+      } else {
+        this.clearCanvas(this.videoCanvas)
+      }
     },
 
     async loadAndPredict() {
       const img = document.getElementById('image');
-      
       // 加载模型
-      const net = await bodyPix.load(
+       this.net = await bodyPix.load(
        { 
             architecture: 'MobileNetV1',
             outputStride: 16,
-            multiplier: 0.5,
+            multiplier: 0.75,
             quantBytes: 2
         }
       );
-      this.segmentation = await net.segmentPerson(img);
-      const coloredPartImage = bodyPix.toMask(this.segmentation);
-      const opacity = 0.3;
+      this.segmentation = await this.net.segmentPerson(img);
    
-      const canvas = document.getElementById('canvas');
-
+      const canvas = document.getElementById('picCanvas');
       // 背景虚化
       bodyPix.drawBokehEffect(
-      canvas, img, this.segmentation, this.backgroundBlurAmount,
+      canvas, img, this.segmentation, 3,
       this.edgeBlurAmount, this.flipHorizontal);
     }
   }
@@ -187,7 +226,7 @@ export default {
    
 </script>
 
-<style lang="scss">
+<style>
   .root {
     margin: 40px 50px;
   }
@@ -197,10 +236,11 @@ export default {
     margin-top: 20px;
   }
   .container {
-    .video{
-      padding: 20px;
-    }
+   
     margin-top: 20px;
     display: flex;
   }
+   .video{
+      padding: 20px;
+    }
 </style>
