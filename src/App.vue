@@ -211,11 +211,12 @@ export default {
             quantBytes: 2
         }
       );
+      const segmentation = await this.net.segmentPerson(img);
    
       const canvas = document.getElementById('picCanvas');
       // 背景虚化
       bodyPix.drawBokehEffect(
-      canvas, img, this.segmentation, 3,
+      canvas, img, segmentation, 3,
       this.edgeBlurAmount, this.flipHorizontal);
     }
   }
