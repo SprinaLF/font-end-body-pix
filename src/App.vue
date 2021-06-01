@@ -81,13 +81,13 @@ export default {
       }).then(success => {
         // 摄像头开启成功
         this.$refs['video'].srcObject = success
-        isOpen = true,
+        this.isOpen = true,
         // 实时拍照效果
         this.$refs['video'].play()
         // 判断处于哪种模式
-        switchVideoMode()
+        this.switchVideoMode()
       }).catch(error => {
-        console.error('摄像头开启失败，请检查摄像头是否可用！')
+        console.error(error||'摄像头开启失败')
       })
     },
     // 拍照
