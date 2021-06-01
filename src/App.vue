@@ -58,7 +58,6 @@ export default {
       net: null,
 
       opacity: 0.3,
-      segmentation: null,     // 计算出d
       flipHorizontal: false,    // 是否水平翻转
       backgroundBlurAmount: 3,  // 背景虚化程度 0~20
       edgeBlurAmount: 3,    // 边缘模糊
@@ -137,7 +136,6 @@ export default {
     switchVideoMode () {
       switch(this.radio) {
         case 1: 
-          clearInterval(this.timer)
           this.clearCanvas(this.videoCanvas)
           break
         case 2: 
@@ -151,9 +149,9 @@ export default {
     // 2虚化背景
     async blurBackground () {
       const img = this.$refs['video']
-      this.segmentation = await this.net.segmentPerson(img);
+      const segmentation = await this.net.segmentPerson(img);
       bodyPix.drawBokehEffect(
-        this.videoCanvas, img, this.segmentation, 3,
+        this.videoCanvas, img, segmentation, 3,
         this.edgeBlurAmount, this.flipHorizontal);
       if(this.radio===2) {
         requestAnimationFrame(
@@ -213,7 +211,6 @@ export default {
             quantBytes: 2
         }
       );
-      this.segmentation = await this.net.segmentPerson(img);
    
       const canvas = document.getElementById('picCanvas');
       // 背景虚化
